@@ -161,7 +161,7 @@
       ['r', 'read %m.inAPins', 'analogRead', 'a0'],
       ['h', 'when %m.inDPins is %m.dOutp', 'whenDigitalRead', 'd0', 'on'],
       ['h', 'when %m.inAPins is %m.ops %n', 'whenAnalogRead', 'a0', '>', '100'],
-      ['r', 'map %n from %n %n to %n %n', 'mapValues', 50, 0, 100, -240, 240]
+      ['r', 'map %n from %n %n to %n %n', 'mapValues', 500, 0, 1023, 0, 255]
     ],
     menus: {
       outDPins: ['d1', 'd5', 'd9'],
