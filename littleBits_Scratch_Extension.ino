@@ -10,6 +10,9 @@ const int READ_PINS = 1;
 const int WRITE_ANALOG = 2;
 const int WRITE_DIGITAL = 3;
 
+const int START_MSG = 0xF0;
+const int END_MSG = 0xF7;
+
 // Analog input smoothing
 // http://arduino.cc/en/Tutorial/Smoothing
 const int NUM_READINGS = 10;
@@ -21,11 +24,10 @@ int averageA0 = 0;
 int totalA1 = 0;
 int totalA0 = 0;
 
-// Reading from Serial
+// Reading/Writing from Serial
 // http://arduino.cc/en/Serial/read
-const int NUM_OUTPUT_PINS = 3;
 int incomingByte = 0;
-int inputPins[NUM_OUTPUT_PINS];
+int inputMsg[8];
 int outputPin;
 int outputVal;
 
@@ -56,17 +58,25 @@ void loop() {
     incomingByte = Serial.read();
     
     if (incomingByte == READ_PINS) {
-    
+      
+      inputMsg[0] = START_MSG;
+      
       // Read digital pin 0
-      inputPins[0] = digitalRead(0);
+      inputMsg[1] = digitalRead(0);
+      inputMsg[2] = 0;
       
       // Get averages for analog pins 0 and 1
-      inputPins[1] = averageA0;
-      inputPins[2] = averageA1;
+      inputMsg[3] = averageA0 ^ 0x300;
+      inputMsg[4] = averageA0 >> 0x08;
       
-      // Send value 
-      for (int i = 0; i < NUM_OUTPUT_PINS; i++)
-        Serial.write(inputPins[i]);
+      inputMsg[5] = averageA1 ^ 0x300;
+      inputMsg[6] = averageA1 >> 0x08;
+      
+      inputMsg[7] = END_MSG;
+      
+      // Send message 
+      for (int i = 0; i < 8; i++)
+        Serial.write(inputMsg[i]);
     
     } else if (incomingByte == WRITE_ANALOG) {
     

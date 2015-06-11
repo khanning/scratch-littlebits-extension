@@ -1,5 +1,12 @@
 (function(ext) {
 
+  var START_MSG = 0xF0,
+    END_MSG = 0xF7;
+
+  var parsingMsg = false;
+  var msgBytesRead = 0;
+  var storedMsg = new Uint8Array(1024);
+
   var connected = false;
   var device = null;
   var poller = null;
@@ -16,20 +23,29 @@
   var inputVals = { d0: 0, a0: 0, a1: 0 };
   var outputPins = { d1: 1, d5: 5, d9: 9 };
 
-  function appendBuffer(buffer1, buffer2) {
-    var tmp = new Uint8Array(buffer1.byteLength + buffer2.byteLength);
-    tmp.set(new Uint8Array(buffer1), 0);
-    tmp.set(new Uint8Array(buffer2), buffer1.byteLength);
-    return tmp.buffer;
-  };
+  function processMsg() {
+    inputVals.d0 = storedMsg[0] | (storedMsg[1] << 0x08);
+    inputVals.a0 = storedMsg[2] | (storedMsg[3] << 0x08);
+    inputVals.a1 = storedMsg[4] | (storedMsg[5] << 0x08);
+  }
 
-  function processData() {
-    var input = new Uint8Array(rawData);
-    inputVals.d0 = input[0];
-    inputVals.a0 = input[1];
-    inputVals.a1 = input[2];
-    rawData = null;
-  };
+  function processInput(data) {
+    for (var i=0; i < data.length; i++) {
+      if (parsingMsg) {
+        if (data[i] == END_MSG) {
+          parsingMsg = false;
+          processMsg();
+        } else {
+          storedMsg[msgBytesRead++] = data[i];
+        }
+      } else {
+        if (data[i] == START_MSG) {
+          parsingMsg = true;
+          msgBytesRead = 0;
+        }
+      }
+    }
+  }
 
   ext.analogRead = function(pin) {
     return inputVals[pin];
@@ -52,7 +68,7 @@
     var output = new Uint8Array(3);
     output[0] = 3;
     output[1] = outputPins[pin];
-    if (val == 'HIGH')
+    if (val === 'on')
       output[2] = 1;
     else
       output[2] = 0;
@@ -60,21 +76,26 @@
   };
 
   ext.whenAnalogRead = function(pin, op, val) {
-    if (op == '>')
+    if (op === '>')
       return inputVals[pin] > val;
-    else if (op == '<')
+    else if (op === '<')
       return inputVals[pin] < val;
-    else if (op == '=')
-      return inputVals[pin] == val;
+    else if (op === '=')
+      return inputVals[pin] === val;
     else
       return false;
   };
 
   ext.whenDigitalRead = function(pin, val) {
-    if (val == 'HIGH')
+    if (val === 'on')
       return ext.digitalRead(pin);
     else
-      return ext.digitalRead(pin) == false;
+      return ext.digitalRead(pin) === false;
+  };
+
+  ext.mapValues = function(val, aMin, aMax, bMin, bMax) {
+    var output = (((bMax - bMin) * (val - aMin)) / (aMax - aMin)) + bMin;
+    return Math.round(output);
   };
  
   ext._getStatus = function() {
@@ -97,17 +118,9 @@
     device = dev;
     device.open({ stopBits: 0, bitRate: 38400, ctsFlowControl: 0 });
     device.set_receive_handler(function(data) {
-
       sendAttempts = 0;
-
-      if (!rawData || rawData.byteLength == 3)
-        rawData = new Uint8Array(data);
-      else
-        rawData = appendBuffer(rawData, data);
-
-      if (rawData.byteLength >= 3)
-        processData();
-
+      var inputData = new Uint8Array(data);
+      processInput(inputData);
     }); 
 
     poller = setInterval(function() {
@@ -132,9 +145,9 @@
   };
 
   ext._shutdown = function() {
-    ext.digitalWrite(d1, 'LOW');
-    ext.digitalWrite(d5, 'LOW');
-    ext.digitalWrite(d9, 'LOW');
+    ext.digitalWrite(d1, 'off');
+    ext.digitalWrite(d5, 'off');
+    ext.digitalWrite(d9, 'off');
     if (device) device.close();
     if (poller) clearInterval(poller);
     device = null;
@@ -142,22 +155,23 @@
 
   var descriptor = {
     blocks: [
-      [' ', 'digitalWrite %m.outDPins %m.dOutp', 'digitalWrite', 'd1', 'HIGH'],
-      [' ', 'analogWrite %m.outAPins %n', 'analogWrite', 'd5', '255'],
-      ['b', 'digitalRead %m.inDPins', 'digitalRead', 'd0'],
-      ['r', 'analogRead %m.inAPins', 'analogRead', 'a0'],
-      ['h', 'when %m.inDPins = %m.dOutp', 'whenDigitalRead', 'd0', 'HIGH'],
-      ['h', 'when %m.inAPins %m.ops %n', 'whenAnalogRead', 'a0', '>', '100']
+      [' ', 'set %m.outDPins %m.dOutp', 'digitalWrite', 'd1', 'on'],
+      [' ', 'set %m.outAPins to %n', 'analogWrite', 'd5', '255'],
+      ['b', 'read %m.inDPins', 'digitalRead', 'd0'],
+      ['r', 'read %m.inAPins', 'analogRead', 'a0'],
+      ['h', 'when %m.inDPins is %m.dOutp', 'whenDigitalRead', 'd0', 'on'],
+      ['h', 'when %m.inAPins is %m.ops %n', 'whenAnalogRead', 'a0', '>', '100'],
+      ['r', 'map %n from %n %n to %n %n', 'mapValues', 50, 0, 100, -240, 240]
     ],
     menus: {
       outDPins: ['d1', 'd5', 'd9'],
       outAPins: ['d5', 'd9'],
       inDPins: ['d0', 'a0', 'a1'],
       inAPins: ['a0', 'a1'],
-      dOutp: ['HIGH', 'LOW'],
+      dOutp: ['on', 'off'],
       ops: ['>', '=', '<']
     },  
-    url: 'http://github.com/khanning/scratch-littlebits-extension'
+    url: 'http://khanning.github.io/scratch-littlebits-extension'
   };
 
   ScratchExtensions.register('littleBits', descriptor, ext, {type:'serial'});
